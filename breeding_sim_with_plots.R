@@ -1,8 +1,8 @@
 # Load AlphaSimR
 library(AlphaSimR)
 
-#Set Simulation Parameters
-i <- 30 #number of founders
+# Set Simulation Parameters
+i <- 10 # number of founders
 nChr <- 1
 segSites <- 100 
 species <- "MAIZE"
@@ -11,90 +11,110 @@ qtlPerChr <- 10
 selectProp <- 0.1
 numOfGens <- 5
 
-#Make 10 founders
+# Create founders
 founderPop <- runMacs(nInd = i, nChr = nChr, segSites = segSites, species = species)
 SP <- SimParam$new(founderPop)
 
-#create single trait
+# Create single trait
 SP$addTraitA(nQtlPerChr = qtlPerChr, mean = 0, var = 1)
-
 founders <- newPop(founderPop)
 
-#needed to prevent the error about selection trait having missing values
+# Set heritability
 SP$setVarE(h2 = heritability)
 
-#create crossing scheme
 #all pairwise crosses
 pairs <- t(combn(1:i, 2))
 
-#Initialize F1 population
+# Initialize F1 population
 F1 <- NULL
-
-for (i in 1:nrow(pairs)) {
-  #create 100 F1 offspring for each cross
-  #cross <- randCross(pop = founders[pairs[i, ]], nCrosses = 1, nProgeny = 100)
-  cross <- makeCross(pop = founders, crossPlan = matrix(pairs[i, ], ncol = 2), nProgeny = 100)
-  #Combine all crosses into a single population
-  if (is.null(F1)) {
-    F1 <- cross
-  } else {
-    F1 <- c(F1, cross)
-  }
+for (k in 1:nrow(pairs)) {
+  cross <- makeCross(pop = founders, crossPlan = matrix(pairs[k, ], ncol = 2), nProgeny = 100)
+  F1 <- if (is.null(F1)) cross else c(F1, cross)
 }
 
-#Start with F1 population
-current_pop <- F1
-cat("Generation F1", ": Selected all ", current_pop@nInd, " individuals\n", sep = "")
+# Initialize populations for pheno and geno selection methods
+current_pop_pheno <- F1
+current_pop_geno <- F1
 
-num_individuals <- c(current_pop@nInd)
+# tracking variables for phenotypic and genetic selection
+results_pheno <- data.frame(Generation = 1, Num_of_Ind = F1@nInd,
+                            Genetic_Gain = meanG(current_pop_pheno),
+                            Phenotypic_Gain = meanP(current_pop_pheno),
+                            Genetic_Variance = varG(current_pop_pheno)[1],
+                            Phenotypic_Variance = varP(current_pop_pheno)[1])
 
-# Initialize vectors to track genetic/phenotypic gain and variance
-genetic_gain <- c(meanG(current_pop))
-phenotypic_gain <- c(meanP(current_pop))
-genetic_variance <- c(varG(current_pop))
-phenotypic_variance <- c(varP(current_pop))
+#NB: same starting point as above since both are starting out with the same F1 pop
+results_gv <- results_pheno 
 
-#repeat for F2 though F5 
+#repeat selection for F2 to F5
 for (gen in 2:numOfGens) {
-  #Self all F1s
-  current_pop <- self(current_pop)
+  # self both pops
+  current_pop_pheno <- self(current_pop_pheno)
+  current_pop_geno <- self(current_pop_geno)
   
-  #select top 10% of F1
-  nSelect <- ceiling(selectProp * current_pop@nInd)
-  current_pop <- selectInd(current_pop, nInd = nSelect, trait = 1, use = "pheno")
+  # Pheno selection: select top 10%
+  nSelect_pheno <- ceiling(selectProp * current_pop_pheno@nInd)
+  current_pop_pheno <- selectInd(current_pop_pheno, nInd = nSelect_pheno, trait = 1, use = "pheno")
   
-  num_individuals <- c(num_individuals, nSelect)
+  # Geno selection: select top 10%
+  nSelect_geno <- ceiling(selectProp * current_pop_geno@nInd)
+  current_pop_geno <- selectInd(current_pop_geno, nInd = nSelect_geno, trait = 1, use = "gv")
   
-  # Record the mean genetic and phenotypic values and variances
-  genetic_gain <- c(genetic_gain, meanG(current_pop))
-  phenotypic_gain <- c(phenotypic_gain, meanP(current_pop))
-  genetic_variance <- c(genetic_variance, varG(current_pop))
-  phenotypic_variance <- c(phenotypic_variance, varP(current_pop))
-  accuracy <- cor(gv(current_pop), pheno(current_pop))
+  #track phenotypic selection results
+  results_pheno <- rbind(results_pheno, data.frame(
+    Generation = gen,
+    Num_of_Ind = nSelect_pheno,
+    Genetic_Gain = meanG(current_pop_pheno),
+    Phenotypic_Gain = meanP(current_pop_pheno),
+    Genetic_Variance = varG(current_pop_pheno)[1],
+    Phenotypic_Variance = varP(current_pop_pheno)[1]
+  ))
   
-  # Print progress
-  cat("Generation F", gen, ": Selected ", nSelect, " individuals\n", sep = "")
-  
+  #track genetic selection results
+  results_gv <- rbind(results_gv, data.frame(
+    Generation = gen,
+    Num_of_Ind = nSelect_geno,
+    Genetic_Gain = meanG(current_pop_geno),
+    Phenotypic_Gain = meanP(current_pop_geno),
+    Genetic_Variance = varG(current_pop_geno)[1],
+    Phenotypic_Variance = varP(current_pop_geno)[1]
+  ))
 }
 
-# Store results in a dataframe
+#Geno and Pheno gain across generations using pheno trait values
+plot(results_pheno$Generation, results_pheno$Genetic_Gain, type = "o", col = "red", ylim = range(c(results_pheno$Genetic_Gain, results_pheno$Phenotypic_Gain)),
+     xlab = "Generation", ylab = "Mean Value", main = "Genetic and Phenotypic Gain Across Generations")
+lines(results_pheno$Generation, results_pheno$Phenotypic_Gain, type = "o", col = "blue")
+legend("topleft", cex=0.5, legend = c("Genetic Gain", "Phenotypic Gain"), col = c("red", "blue"), lty = 1, pch = 1)
+
+#Genetic and phenotypic variance across generations also using pheno trait values
+plot(results_pheno$Generation, results_pheno$Genetic_Variance, type = "o", col = "red", ylim = range(c(results_pheno$Genetic_Variance, results_pheno$Phenotypic_Variance)),
+     xlab = "Generation", ylab = "Variance", main = "Genetic and Phenotypic Variance")
+lines(results_pheno$Generation, results_pheno$Phenotypic_Variance, type = "o", col = "blue")
+legend("topright", cex=0.5, legend = c("Genetic Variance", "Phenotypic Variance"), col = c("red", "blue"), lty = 1, pch = 1)
+
+
+#Comparison of genetic gain from pheno and geno selection USING GENETIC VALUES (GV)
+##Hypothesis tested: Genetic selection results in faster genetic gain compared
+##to phenotypic selection at a stringent selection intensity.
+plot(results_gv$Generation, results_gv$Genetic_Gain, type = "o", col = "red",
+     ylim = range(c(results_gv$Phenotypic_Gain, results_gv$Genetic_Gain)),
+     xlab = "Generation", ylab = "Gain", main = "Geno vs. Pheno Selection")
+lines(results_gv$Generation, results_gv$Phenotypic_Gain, type = "o", col = "blue")
+legend("topleft", cex=0.5, legend = c("Geno Selection", "Pheno Selection"), col = c("red", "blue"), lty = 1, pch = 1)
+
+
+# Sombined results for display
 results_df <- data.frame(
   Generation = 1:numOfGens,
-  Num_of_Ind = num_individuals,
-  Genetic_Gain = genetic_gain,
-  Phenotypic_Gain = phenotypic_gain,
-  Genetic_Variance = genetic_variance,
-  Phenotypic_Variance = phenotypic_variance
+  Num_of_Ind = results_pheno$Num_of_Ind,
+  Genetic_Gain_Pheno = results_pheno$Genetic_Gain,
+  Phenotypic_Gain_Pheno = results_pheno$Phenotypic_Gain,
+  Genetic_Gain_Geno = results_gv$Genetic_Gain,
+  Phenotypic_Gain_Geno = results_gv$Phenotypic_Gain
 )
 
-# Plot genetic and phenotypic gain
-plot(1:numOfGens, genetic_gain, type = "o", col = "blue", ylim = range(c(genetic_gain, phenotypic_gain)),
-     xlab = "Generation", ylab = "Mean Value", main = "Genetic and Phenotypic Gain Across Generations")
-lines(1:numOfGens, phenotypic_gain, type = "o", col = "red")
-legend("topleft", cex=0.5, legend = c("Genetic Gain", "Phenotypic Gain"), col = c("blue", "red"), lty = 1, pch = 1)
-
-# Plot for variances (genetic and phenotypic variance)
-plot(1:numOfGens, genetic_variance, type = "o", col = "darkgreen", ylim = range(c(genetic_variance, phenotypic_variance)),
-     xlab = "Generation", ylab = "Variance", main = "Genetic and Phenotypic Variance")
-lines(1:numOfGens, phenotypic_variance, type = "o", col = "orange")
-legend("topright", cex=0.5, legend = c("Genetic Variance", "Phenotypic Variance"), col = c("darkgreen", "orange"), lty = 1, pch = 1)
+print(results_df)
+names(results_df)
+#NB: Genetic_gain_geno refers to mean genetic values obtained using the "gv" selection criterion in selectInd()
+#Likewise Phenotypic_gain_geno refers to mean trait values obtained using the "pheno" selection criterion
