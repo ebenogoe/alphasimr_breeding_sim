@@ -3,7 +3,7 @@ library(AlphaSimR)
 library(parallel) # For parallel processing
 
 # Set Simulation Parameters
-i <- 10 # number of founders
+i <- 20 # number of founders. this will significantly increase code execution time
 nChr <- 1
 segSites <- 100 
 species <- "MAIZE"
@@ -11,7 +11,7 @@ heritability <- 0.3
 qtlPerChr <- 10
 selectProp <- 0.1
 numOfGens <- 5
-numOfRuns <- 100 # number of runs using mclapply
+numOfRuns <- 1000 # number of runs using mclapply
 
 # Wrapped whole code into function for parallelization
 run_simulation <- function(seed) {
@@ -96,8 +96,16 @@ run_simulation <- function(seed) {
 #Run simulations using the run number as the seed for that run
 #E.g the first run will have the seed 1, second run seed 2 and so on
 # numOfRuns = numOfSeeds = numOfTimesTheSimulationWillBeRun
-seeds <- 1:numOfRuns
-simulation_results <- mclapply(seeds, run_simulation, mc.cores = detectCores() - 1)
+#seeds <- 1:numOfRuns
+#simulation_results <- mclapply(seeds, run_simulation, mc.cores = detectCores() - 1)
+
+benchmark_results <- system.time({
+  seeds <- 1:numOfRuns
+  simulation_results <- mclapply(seeds, run_simulation, mc.cores = detectCores() - 1)
+})
+
+# Time elapsed in minutes. Of particular interest is elapsed (wall clock time)
+print(benchmark_results/60) 
 
 # Aggregate results across runs
 average_results_pheno <- Reduce("+", lapply(simulation_results, function(x) x$results_pheno)) / numOfRuns
