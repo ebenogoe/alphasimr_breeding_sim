@@ -2,9 +2,10 @@
 library(AlphaSimR)
 library(ggplot2)
 library(parallel)
+library(dplyr)
 
 # Set Simulation Parameters
-i <- 20 # Number of founders
+i <- 10 # Number of founders
 nChr <- 1
 segSites <- 100 
 species <- "MAIZE"
@@ -12,9 +13,9 @@ heritability <- 0.3
 qtlPerChr <- 10
 selectProp <- 0.1
 numOfGens <- 5
-numOfRuns <- 100 # Number of parallel runs
+numOfRuns <- 1000 # Number of parallel runs
 
-# Wrapped simulation into function for parallelization
+#wrapped simulation into function for parallelization with mclapply
 run_simulation <- function(seed) {
   set.seed(seed)
   
@@ -40,11 +41,12 @@ run_simulation <- function(seed) {
     F1 <- if (is.null(F1)) cross else c(F1, cross)
   }
   
-  # Variables for original global selection 
+  # variables for old global selection method
   current_pop_pheno_global <- F1
   current_pop_geno_global <- F1
   
-  # Variables for cluster-based selection
+  # variables for new cluster-based selection
+  # will be initialized with real values after selection within clusters
   selected_cluster_pheno <- NULL
   selected_cluster_geno <- NULL
   
@@ -52,19 +54,19 @@ run_simulation <- function(seed) {
   for (k in 1:nrow(pairs)) {
     cross <- makeCross(pop = founders, crossPlan = matrix(pairs[k, ], ncol = 2), nProgeny = 100)
     
-    # Select top 10% from each cross
+    # select top 10% from each cross
     nSelect_per_cluster <- ceiling(0.1 * cross@nInd)
     
-    # Phenotypic selection within cluster
+    # phenotypic selection within cluster
     selected_pheno <- selectInd(cross, nInd = nSelect_per_cluster, trait = 1, use = "pheno")
     selected_cluster_pheno <- if(is.null(selected_cluster_pheno)) selected_pheno else c(selected_cluster_pheno, selected_pheno)
     
-    # Genetic selection within cluster
+    # genetic selection within cluster
     selected_geno <- selectInd(cross, nInd = nSelect_per_cluster, trait = 1, use = "gv")
     selected_cluster_geno <- if(is.null(selected_cluster_geno)) selected_geno else c(selected_cluster_geno, selected_geno)
   }
   
-  # Initialize results tracking
+  #Initialize results tracking with F1 gen
   results_comparison <- rbind(
     data.frame(
       Generation = 1,
@@ -96,29 +98,29 @@ run_simulation <- function(seed) {
     )
   )
   
-  # Continue selection for subsequent generations
+  #continue selection for subsequent generations from F2
   for (gen in 2:numOfGens) {
-    # Global phenotypic selection
+    #Global phenotypic selection
     current_pop_pheno_global <- self(current_pop_pheno_global)
     nSelect_global <- ceiling(selectProp * current_pop_pheno_global@nInd)
     current_pop_pheno_global <- selectInd(current_pop_pheno_global, nInd = nSelect_global, trait = 1, use = "pheno")
     
-    # Global genetic selection
+    #Global genetic selection
     current_pop_geno_global <- self(current_pop_geno_global)
     nSelect_global <- ceiling(selectProp * current_pop_geno_global@nInd)
     current_pop_geno_global <- selectInd(current_pop_geno_global, nInd = nSelect_global, trait = 1, use = "gv")
     
-    # Cluster phenotypic selection
+    #Cluster phenotypic selection
     selected_cluster_pheno <- self(selected_cluster_pheno)
     nSelect_cluster <- ceiling(selectProp * selected_cluster_pheno@nInd)
     selected_cluster_pheno <- selectInd(selected_cluster_pheno, nInd = nSelect_cluster, trait = 1, use = "pheno")
     
-    # Cluster genetic selection
+    #Cluster genetic selection
     selected_cluster_geno <- self(selected_cluster_geno)
     nSelect_cluster <- ceiling(selectProp * selected_cluster_geno@nInd)
     selected_cluster_geno <- selectInd(selected_cluster_geno, nInd = nSelect_cluster, trait = 1, use = "gv")
     
-    # Track values
+    #track values, adding new results as rows to previously recorded observations
     results_comparison <- rbind(
       results_comparison,
       data.frame(
@@ -155,44 +157,79 @@ run_simulation <- function(seed) {
   return(results_comparison)
 }
 
-# Run simulations in parallel
-benchmark_results <- system.time({
-  seeds <- 1:numOfRuns
-  simulation_results <- mclapply(seeds, run_simulation, mc.cores = detectCores() - 1)
-})
+seeds <- 1:numOfRuns
+simulation_results <- mclapply(seeds, run_simulation, mc.cores = detectCores() - 1)
 
-# Print execution time in minutes
-print(benchmark_results/60)
+# When mclapply(...) is run from within system.time with nRuns = 10000, it seems to 
+# take forever to complete. Use the red stop button or Esc to abort
+##### Benchmarking Start ######
+#Run simulations with mclapply
+#benchmark_results <- system.time({
+#  seeds <- 1:numOfRuns
+#  simulation_results <- mclapply(seeds, run_simulation, mc.cores = detectCores() - 1)
+#})
+#### End ####
 
+#Simulation run time in minutes
+#of major importance is the elapsed i.e wall clock time
+#print(benchmark_results/60)
 
-# Combine all results
+#Combine all results from the simulation
 all_results <- do.call(rbind, simulation_results)
 
-# Calculate means for each group
-average_results <- aggregate(
-  cbind(Genetic_Gain, Genetic_Variance, Num_of_Ind) ~ Generation + Method, 
-  data = all_results, 
-  FUN = mean
+# Calculate means and standard deviations for boundaries
+summary_results <- aggregate(
+  cbind(Genetic_Gain, Genetic_Variance) ~ Generation + Method,
+  data = all_results,
+  FUN = function(x) c(mean = mean(x), sd = sd(x))
 )
 
-# Plot average genetic gain comparison
-ggplot(average_results, aes(x = Generation, y = Genetic_Gain, color = Method)) +
+# some elements of summary_results are lists of lists
+# doing a simple as.data.frame would not work
+summary_results <- as.data.frame(sapply(summary_results, unlist))
+# summary_results <- do.call(data.frame, summary_results) # more elegant
+names(summary_results)[3:6] <- c("Genetic_Gain", "Genetic_Gain_SD", "Genetic_Variance", "Genetic_Variance_SD")
+
+# Plot with grey boundaries for genetic gain
+ggplot(summary_results, aes(x = Generation, y = Genetic_Gain, color = Method, fill = Method)) +
   geom_line() +
   geom_point() +
+  geom_ribbon(aes(ymin = Genetic_Gain - Genetic_Gain_SD, ymax = Genetic_Gain + Genetic_Gain_SD), alpha = 0.2, color = NA) +
   theme_classic() +
-  labs(title = "Comparison of Genetic Gain - Average Across All Runs",
+  labs(title = "Genetic Gain - Avg Across All Runs with Boundaries",
        y = "Genetic Gain",
        x = "Generation")
 
-# Plot average genetic variance comparison
-ggplot(average_results, aes(x = Generation, y = Genetic_Variance, color = Method)) +
-  geom_line() +
-  geom_point() +
-  theme_classic() +
-  labs(title = "Comparison of Genetic Variance - Average Across All Runs",
-       y = "Genetic Variance",
-       x = "Generation")
+# average genetic gain comparison across all simulations -- no grey shade
+# ggplot(summary_results, aes(x = Generation, y = Genetic_Gain, color = Method)) +
+#  geom_line() +
+#  geom_point() +
+#  theme_classic() +
+#  labs(title = "Genetic Gain - Avg Across All Runs",
+#       y = "Genetic Gain",
+#       x = "Generation")
 
-# Print summary statistics
-print(aggregate(Genetic_Gain ~ Generation + Method, data = average_results, 
+# average genetic variance comparison across all simulations -- no grey shade
+#ggplot(average_results, aes(x = Generation, y = Genetic_Variance, color = Method)) +
+#  geom_line() +
+#  geom_point() +
+#  theme_classic() +
+#  labs(title = "Comparison of Genetic Variance - Average Across All Runs",
+#       y = "Genetic Variance",
+#       x = "Generation")
+
+# Print stats
+print(aggregate(Genetic_Gain ~ Generation + Method, data = summary_results, 
                 FUN = function(x) round(mean(x), 3)))
+
+# values for boundaries
+boundary_vals <- all_results %>%
+  group_by(Method) %>%
+  summarize(
+    mean_gain = mean(Genetic_Gain),
+    sd_gain = sd(Genetic_Gain),
+    upper_bound = mean_gain + sd_gain,
+    lower_bound = mean_gain - sd_gain,
+    .groups = "drop"
+  )
+print(boundary_vals)
