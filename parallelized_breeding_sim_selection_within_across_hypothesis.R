@@ -186,19 +186,19 @@ summary_results <- aggregate(
 
 # some elements of summary_results are lists of lists
 # doing a simple as.data.frame would not work
-summary_results <- as.data.frame(sapply(summary_results, unlist))
-# summary_results <- do.call(data.frame, summary_results) # more elegant
+summary_results <- do.call(data.frame, summary_results) # more elegant
 names(summary_results)[3:6] <- c("Genetic_Gain", "Genetic_Gain_SD", "Genetic_Variance", "Genetic_Variance_SD")
 
 # Plot with grey boundaries for genetic gain
 ggplot(summary_results, aes(x = Generation, y = Genetic_Gain, color = Method, fill = Method)) +
   geom_line() +
   geom_point() +
-  geom_ribbon(aes(ymin = Genetic_Gain - Genetic_Gain_SD, ymax = Genetic_Gain + Genetic_Gain_SD), alpha = 0.2, color = NA) +
+  geom_ribbon(aes(ymin = Genetic_Gain - Genetic_Gain_SD, ymax = Genetic_Gain + Genetic_Gain_SD), alpha = 0.3, color = NA) +
   theme_classic() +
   labs(title = "Genetic Gain - Avg Across All Runs with Boundaries",
        y = "Genetic Gain",
        x = "Generation")
+ggsave("Genetic_Gain_Taller.png", width = 8, height = 12)
 
 # average genetic gain comparison across all simulations -- no grey shade
 # ggplot(summary_results, aes(x = Generation, y = Genetic_Gain, color = Method)) +
@@ -233,3 +233,39 @@ boundary_vals <- all_results %>%
     .groups = "drop"
   )
 print(boundary_vals)
+
+## error bars -- no dodge
+ggplot(summary_results, aes(x = Generation, y = Genetic_Gain, color = Method)) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin = Genetic_Gain - Genetic_Gain_SD, ymax = Genetic_Gain + Genetic_Gain_SD), width = 0.1) +
+  theme_classic() +
+  labs(title = "Genetic Gain - Avg Across All Runs with Error Bars",
+       y = "Genetic Gain",
+       x = "Generation")
+ggsave("output_imgs/Genetic_Gain_ErrorBars_Taller.png", width = 8, height = 12) #taller plot
+
+##error bars with dodge position applied 
+ggplot(summary_results, aes(x = Generation, y = Genetic_Gain, color = Method)) +
+  geom_line(position = position_dodge(width = 0.3)) +
+  geom_point(position = position_dodge(width = 0.3)) +
+  geom_errorbar(aes(ymin = Genetic_Gain - Genetic_Gain_SD, ymax = Genetic_Gain + Genetic_Gain_SD),
+                width = 0.2, position = position_dodge(width = 0.3)) +
+  theme_classic() +
+  labs(title = "Genetic Gain with Dodged Error Bars",
+       y = "Genetic Gain",
+       x = "Generation")
+ggsave("output_imgs/dodged_error_bars_plot.png", width = 10, height = 6, dpi = 300)
+
+## Faceting
+ggplot(summary_results, aes(x = Generation, y = Genetic_Gain)) +
+  geom_line(aes(color = Method)) +
+  geom_point(aes(color = Method)) +
+  geom_errorbar(aes(ymin = Genetic_Gain - Genetic_Gain_SD, ymax = Genetic_Gain + Genetic_Gain_SD), width = 0.2) +
+  facet_wrap(~Method, ncol = 2) +
+  theme_classic() +
+  labs(title = "Genetic Gain by Method",
+       y = "Genetic Gain",
+       x = "Generation") +
+  theme(legend.position = "none")
+ggsave("output_imgs/error_bars_faceted.png", width = 10, height = 6, dpi = 300)
