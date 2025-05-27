@@ -42,8 +42,8 @@ run_simulation <- function(seed) {
   }
   
   # variables for old global selection method
-  current_pop_pheno_global <- F1
-  current_pop_geno_global <- F1
+  current_pop_pheno_global <- selectInd(F1, nInd = 0.1 * F1@nInd, trait = 1, use = "pheno")
+  current_pop_geno_global <- selectInd(F1, nInd = 0.1 * F1@nInd, trait = 1, use = "gv")
   
   # variables for new cluster-based selection
   # will be initialized with real values after selection within clusters
