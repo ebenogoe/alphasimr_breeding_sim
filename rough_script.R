@@ -53,5 +53,3 @@ genoF4 <- pullSegSiteGeno(F4)
 colnames(genoF4) <- paste0("ID", 2:(ncol(genoF4) + 1))
 EBVF4 <- as.numeric(predict(model, genoF4))
 F4@ebv <- as.matrix(EBVF4)
-
-
