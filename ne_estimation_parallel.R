@@ -18,7 +18,8 @@ n.sites <- 300
 n.gens <- 10
 n.crosses <- 50
 n.progeny <- 10
-n.reps <- 30
+n.reps <- 10
+prop.markers <- 0.5 # proportion of markers to use. Set to 1 to use all markers
 
 #----------------
 # Functions to estimate Ne
@@ -74,8 +75,13 @@ estimate_Ne_from_pegas <- function(geno_matrix, n_pairs = 1000) {
 estimate_Ne_from_dartR <- function(geno) {
   # Convert geno to genlight
   gl <- new("genlight", geno)
+  
   #gl@ploidy <- as.integer(2)
-  gl@chromosome <- factor(rep(paste0("Chr", 1:n.chr), each = n.sites))
+  markers <- ncol(geno)
+  gl@chromosome <- factor(rep(paste0("Chr", 1:n.chr), length.out = markers))
+  
+  # markers <- floor(n.sites * prop.markers)
+  #gl@chromosome <- factor(rep(paste0("Chr", 1:n.chr), each = markers))
   
   indNames(gl) <- paste0("Ind", 1:nrow(geno))
   locNames(gl) <- paste0("SNP", 1:ncol(geno))
@@ -88,7 +94,7 @@ estimate_Ne_from_dartR <- function(geno) {
 }
 
 #----------------
-# Parallel execution
+# parallel exec
 #----------------
 plan(multisession, workers = parallel::detectCores() - 2)  # or multicore if you get an error
 handlers(global = TRUE)
@@ -109,7 +115,7 @@ single_rep <- function(rep) {
   founders <- runMacs(nInd = n.founders,
                       nChr = n.chr,
                       segSites = n.sites,
-                      inbred = TRUE,
+                      inbred = FALSE,
                       #manualGenLen = 1,
                       nThreads = 1)
   
@@ -123,16 +129,22 @@ single_rep <- function(rep) {
   
   geno <- pullSegSiteGeno(pop)
   
-  est1 <- estimate_Ne_from_LD(geno)
-  est2 <- estimate_Ne_from_pegas(geno)
-  est3 <- estimate_Ne_from_dartR(geno)
+  # Subset x% of markers. Random selecction
+  n.markers <- ncol(geno)
+  selected.cols <- sample(seq_len(n.markers), size = floor(n.markers * prop.markers), replace = FALSE)
+  geno.sub <- geno[, selected.cols]
+  
+  # Estimate Ne using subsetted geno
+  #est1 <- estimate_Ne_from_LD(geno.sub)
+  #est2 <- estimate_Ne_from_pegas(geno.sub)
+  est3 <- estimate_Ne_from_dartR(geno.sub)
   
   data.frame(
     rep = rep,
-    Ne_LD = est1$Ne,
-    r2_LD = est1$r2,
-    Ne_pegas = est2$Ne,
-    r2_pegas = est2$r2,
+    #Ne_LD = est1$Ne,
+    #r2_LD = est1$r2,
+    #Ne_pegas = est2$Ne,
+    #r2_pegas = est2$r2,
     Ne_glLDNe = as.numeric(est3$Pop1$`Frequency 1`[6])
   )
 }
